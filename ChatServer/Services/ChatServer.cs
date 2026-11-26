@@ -12,7 +12,7 @@ public class ChatServer
     private TcpListener? _listener;
     private CancellationTokenSource? _cancellation;
 
-    /// <summary>Bir istemci kullanıcı adıyla kaydolduğunda tetiklenir (arka plan thread'inden).</summary>
+    /// <summary>Bir istemci kullanıcı adıyla kaydolduğunda tetiklenir. Tüm event'ler arka plan thread'inden gelir.</summary>
     public event EventHandler<ClientConnection>? ClientConnected;
 
     /// <summary>Kayıtlı bir istemcinin bağlantısı kapandığında tetiklenir.</summary>
@@ -36,7 +36,8 @@ public class ChatServer
         listener.Start();
         _listener = listener;
         _cancellation = new CancellationTokenSource();
-        return AcceptLoopAsync(listener, _cancellation.Token);
+        CancellationToken token = _cancellation.Token;
+        return Task.Run(() => AcceptLoopAsync(listener, token));
     }
 
     /// <summary>Dinlemeyi durdurur ve tüm istemci bağlantılarını kapatır.</summary>
@@ -85,6 +86,7 @@ public class ChatServer
 
             connection.Username = username;
             ClientConnected?.Invoke(this, connection);
+            await connection.SendAsync(new ChatMessage { Type = MessageType.Join, From = username, Timestamp = DateTime.Now });
 
             await connection.ReadLoopAsync(message => HandleMessageAsync(connection, message), token);
         }
@@ -101,12 +103,14 @@ public class ChatServer
     }
 
     /// <summary>İstemciden gelen mesajı sunucu bilgileriyle damgalayıp işler.</summary>
-    private Task HandleMessageAsync(ClientConnection sender, ChatMessage message)
+    private async Task HandleMessageAsync(ClientConnection sender, ChatMessage message)
     {
         message.From = sender.Username;
         message.Timestamp = DateTime.Now;
         if (message.Type == MessageType.Chat)
+        {
             MessageReceived?.Invoke(this, message);
-        return Task.CompletedTask;
+            await sender.SendAsync(message);
+        }
     }
 }
