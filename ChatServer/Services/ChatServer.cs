@@ -86,7 +86,8 @@ public class ChatServer
 
             connection.Username = username;
             ClientConnected?.Invoke(this, connection);
-            await connection.SendAsync(new ChatMessage { Type = MessageType.Join, From = username, Timestamp = DateTime.Now });
+            await BroadcastAsync(new ChatMessage { Type = MessageType.Join, From = username, Timestamp = DateTime.Now });
+            await BroadcastUserListAsync();
 
             await connection.ReadLoopAsync(message => HandleMessageAsync(connection, message), token);
         }
@@ -98,7 +99,32 @@ public class ChatServer
         {
             connection.Close();
             if (_clients.TryRemove(new KeyValuePair<string, ClientConnection>(connection.Username, connection)))
+            {
                 ClientDisconnected?.Invoke(this, connection);
+                await BroadcastAsync(new ChatMessage { Type = MessageType.Leave, From = connection.Username, Timestamp = DateTime.Now });
+                await BroadcastUserListAsync();
+            }
+        }
+    }
+
+    /// <summary>Mesajı tüm bağlı istemcilere paralel gönderir.</summary>
+    public Task BroadcastAsync(ChatMessage message) =>
+        Task.WhenAll(_clients.Values.Select(client => SendSafeAsync(client, message)));
+
+    /// <summary>Güncel çevrimiçi kullanıcı listesini herkese gönderir.</summary>
+    private Task BroadcastUserListAsync() =>
+        BroadcastAsync(new ChatMessage { Type = MessageType.UserList, Text = string.Join(",", _clients.Keys.Order()) });
+
+    /// <summary>Gönderim hatasında istemciyi kapatır; kapanış onun okuma döngüsünde temizlenir.</summary>
+    private static async Task SendSafeAsync(ClientConnection client, ChatMessage message)
+    {
+        try
+        {
+            await client.SendAsync(message);
+        }
+        catch (Exception ex) when (ex is IOException or SocketException or ObjectDisposedException)
+        {
+            client.Close();
         }
     }
 
@@ -110,7 +136,7 @@ public class ChatServer
         if (message.Type == MessageType.Chat)
         {
             MessageReceived?.Invoke(this, message);
-            await sender.SendAsync(message);
+            await BroadcastAsync(message);
         }
     }
 }

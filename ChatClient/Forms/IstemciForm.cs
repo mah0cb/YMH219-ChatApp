@@ -71,6 +71,13 @@ public partial class IstemciForm : Form
 
     private void Client_MessageReceived(object? sender, ChatMessage message) => RunOnUi(() =>
     {
+        if (message.Type == MessageType.UserList)
+        {
+            lstKullanicilar.Items.Clear();
+            lstKullanicilar.Items.AddRange(message.Users);
+            grpKullanicilar.Text = $"Çevrimiçi Kullanıcılar ({message.Users.Length})";
+            return;
+        }
         lstMesajlar.Items.Add(message.ToString());
         lstMesajlar.TopIndex = lstMesajlar.Items.Count - 1;
     });

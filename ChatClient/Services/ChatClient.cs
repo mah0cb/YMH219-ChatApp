@@ -45,9 +45,7 @@ public class ChatClient
             await MessageSerializer.WriteAsync(_writer, new ChatMessage { Type = MessageType.Join, From = username });
 
             using var timeout = new CancellationTokenSource(JoinTimeout);
-            ChatMessage? reply = MessageSerializer.Deserialize(await reader.ReadLineAsync(timeout.Token));
-            if (reply == null || reply.Type != MessageType.Join || reply.From != username)
-                throw new ChatConnectionException(reply?.Text is { Length: > 0 } text ? text : "Sunucu katılma isteğini kabul etmedi.");
+            ChatMessage reply = await WaitForJoinReplyAsync(reader, username, timeout.Token);
 
             _tcpClient = tcpClient;
             Username = username;
@@ -65,6 +63,26 @@ public class ChatClient
         {
             tcpClient.Close();
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Sunucu kendi Join mesajımızı yayınlayana kadar bekler (kabul). System mesajı gelirse ret demektir.
+    /// Kabulden önce başkalarına ait yayınlar gelebileceği için onlar atlanır.
+    /// </summary>
+    private static async Task<ChatMessage> WaitForJoinReplyAsync(StreamReader reader, string username, CancellationToken token)
+    {
+        while (true)
+        {
+            string? line = await reader.ReadLineAsync(token);
+            if (line == null)
+                throw new ChatConnectionException("Sunucu bağlantıyı kapattı.");
+
+            ChatMessage? message = MessageSerializer.Deserialize(line);
+            if (message?.Type == MessageType.System)
+                throw new ChatConnectionException(message.Text);
+            if (message?.Type == MessageType.Join && message.From == username)
+                return message;
         }
     }
 
