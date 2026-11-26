@@ -57,10 +57,46 @@ public partial class IstemciForm : Form
             await _client.SendTextAsync(text);
             txtMesaj.Clear();
         }
+        catch (ArgumentException ex)
+        {
+            lblDurum.Text = ex.Message;
+        }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException or SocketException)
         {
             // Bağlantı koptuysa okuma döngüsü Disconnected ile ayrıca bildirir.
             lblDurum.Text = "Mesaj gönderilemedi: sunucu bağlantısı kopmuş olabilir.";
+        }
+    }
+
+    /// <summary>Listeden seçilen kullanıcıya özel mesaj için kutuya "/w ad " yazar.</summary>
+    private void lstKullanicilar_DoubleClick(object sender, EventArgs e)
+    {
+        if (lstKullanicilar.SelectedItem is not string username || !_client.IsConnected)
+            return;
+        txtMesaj.Text = $"/w {username} ";
+        txtMesaj.Focus();
+        txtMesaj.SelectionStart = txtMesaj.Text.Length;
+    }
+
+    private void btnGecmisiKaydet_Click(object sender, EventArgs e)
+    {
+        if (lstMesajlar.Items.Count == 0)
+        {
+            MessageBox.Show("Kaydedilecek mesaj yok.", "Bilgi", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        sfdGecmis.FileName = $"sohbet_{DateTime.Now:yyyyMMdd_HHmm}.txt";
+        if (sfdGecmis.ShowDialog(this) != DialogResult.OK)
+            return;
+        try
+        {
+            ChatHistoryExporter.Save(sfdGecmis.FileName, _client.Username, lstMesajlar.Items.Cast<string>());
+            lblDurum.Text = $"Geçmiş kaydedildi: {sfdGecmis.FileName}";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            MessageBox.Show($"Geçmiş kaydedilemedi: {ex.Message}", "Dosya Hatası", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
 

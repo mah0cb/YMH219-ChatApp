@@ -5,15 +5,25 @@ namespace ChatCommon.Models;
 /// <summary>Sunucu ile istemci arasında taşınan tek mesaj.</summary>
 public class ChatMessage
 {
+    private string _from = string.Empty;
+    private string _to = string.Empty;
     private string _text = string.Empty;
 
     public MessageType Type { get; set; }
 
-    /// <summary>Gönderen kullanıcı adı (sunucu mesajlarında boş).</summary>
-    public string From { get; set; } = string.Empty;
+    /// <summary>Gönderen kullanıcı adı (sunucu mesajlarında boş). JSON'dan null gelirse boş olur.</summary>
+    public string From
+    {
+        get => _from;
+        set => _from = value ?? string.Empty;
+    }
 
     /// <summary>Özel mesajın alıcısı; diğer türlerde boş.</summary>
-    public string To { get; set; } = string.Empty;
+    public string To
+    {
+        get => _to;
+        set => _to = value ?? string.Empty;
+    }
 
     public string Text
     {

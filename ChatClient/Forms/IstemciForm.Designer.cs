@@ -30,6 +30,8 @@ partial class IstemciForm
         lstKullanicilar = new ListBox();
         txtMesaj = new TextBox();
         btnGonder = new Button();
+        btnGecmisiKaydet = new Button();
+        sfdGecmis = new SaveFileDialog();
         stsDurum = new StatusStrip();
         lblDurum = new ToolStripStatusLabel();
         ((System.ComponentModel.ISupportInitialize)nudPort).BeginInit();
@@ -140,6 +142,7 @@ partial class IstemciForm
         lstKullanicilar.Name = "lstKullanicilar";
         lstKullanicilar.Size = new Size(222, 368);
         lstKullanicilar.TabIndex = 0;
+        lstKullanicilar.DoubleClick += lstKullanicilar_DoubleClick;
         //
         // txtMesaj
         //
@@ -149,7 +152,7 @@ partial class IstemciForm
         txtMesaj.MaxLength = 1000;
         txtMesaj.Name = "txtMesaj";
         txtMesaj.PlaceholderText = "Mesaj yazın (özel mesaj: /w kullanıcı mesaj)";
-        txtMesaj.Size = new Size(424, 27);
+        txtMesaj.Size = new Size(410, 27);
         txtMesaj.TabIndex = 10;
         txtMesaj.KeyDown += txtMesaj_KeyDown;
         //
@@ -157,13 +160,30 @@ partial class IstemciForm
         //
         btnGonder.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
         btnGonder.Enabled = false;
-        btnGonder.Location = new Point(442, 450);
+        btnGonder.Location = new Point(428, 450);
         btnGonder.Name = "btnGonder";
         btnGonder.Size = new Size(100, 30);
         btnGonder.TabIndex = 11;
         btnGonder.Text = "Gönder";
         btnGonder.UseVisualStyleBackColor = true;
         btnGonder.Click += btnGonder_Click;
+        //
+        // btnGecmisiKaydet
+        //
+        btnGecmisiKaydet.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
+        btnGecmisiKaydet.Location = new Point(534, 450);
+        btnGecmisiKaydet.Name = "btnGecmisiKaydet";
+        btnGecmisiKaydet.Size = new Size(118, 30);
+        btnGecmisiKaydet.TabIndex = 13;
+        btnGecmisiKaydet.Text = "Geçmişi Kaydet";
+        btnGecmisiKaydet.UseVisualStyleBackColor = true;
+        btnGecmisiKaydet.Click += btnGecmisiKaydet_Click;
+        //
+        // sfdGecmis
+        //
+        sfdGecmis.DefaultExt = "txt";
+        sfdGecmis.Filter = "Metin dosyası (*.txt)|*.txt";
+        sfdGecmis.Title = "Sohbet geçmişini kaydet";
         //
         // stsDurum
         //
@@ -186,6 +206,7 @@ partial class IstemciForm
         AutoScaleMode = AutoScaleMode.Font;
         ClientSize = new Size(900, 520);
         Controls.Add(stsDurum);
+        Controls.Add(btnGecmisiKaydet);
         Controls.Add(btnGonder);
         Controls.Add(txtMesaj);
         Controls.Add(grpKullanicilar);
@@ -226,6 +247,8 @@ partial class IstemciForm
     private ListBox lstKullanicilar;
     private TextBox txtMesaj;
     private Button btnGonder;
+    private Button btnGecmisiKaydet;
+    private SaveFileDialog sfdGecmis;
     private StatusStrip stsDurum;
     private ToolStripStatusLabel lblDurum;
 }

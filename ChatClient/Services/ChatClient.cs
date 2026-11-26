@@ -95,9 +95,24 @@ public class ChatClient
         }
     }
 
-    /// <summary>Herkese gidecek sohbet mesajı gönderir.</summary>
-    public Task SendTextAsync(string text) =>
-        SendAsync(new ChatMessage { Type = MessageType.Chat, From = Username, Text = text });
+    /// <summary>
+    /// Kullanıcının yazdığı metni gönderir: "/w ad mesaj" biçimindeyse özel mesaj, değilse herkese.
+    /// Komut eksikse ArgumentException fırlatır.
+    /// </summary>
+    public Task SendTextAsync(string text)
+    {
+        if (!text.StartsWith("/w ", StringComparison.OrdinalIgnoreCase) && !text.Equals("/w", StringComparison.OrdinalIgnoreCase))
+            return SendAsync(new ChatMessage { Type = MessageType.Chat, From = Username, Text = text });
+
+        string[] parts = text.Split(' ', 3, StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 3)
+            throw new ArgumentException("Özel mesaj kullanımı: /w kullanıcı mesaj");
+        return SendPrivateAsync(parts[1], parts[2]);
+    }
+
+    /// <summary>Yalnızca belirtilen kullanıcıya gidecek özel mesaj gönderir.</summary>
+    public Task SendPrivateAsync(string to, string text) =>
+        SendAsync(new ChatMessage { Type = MessageType.Private, From = Username, To = to, Text = text });
 
     /// <summary>Mesajı sunucuya tek satır JSON olarak gönderir.</summary>
     public async Task SendAsync(ChatMessage message)

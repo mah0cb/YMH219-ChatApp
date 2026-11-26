@@ -24,7 +24,7 @@ public class ChatServer
     /// <summary>Bir bağlantı reddedildiğinde (aynı/geçersiz kullanıcı adı) nedeniyle birlikte tetiklenir.</summary>
     public event EventHandler<string>? ClientRejected;
 
-    /// <summary>Bir istemciden sohbet mesajı geldiğinde tetiklenir.</summary>
+    /// <summary>Bir istemciden genel veya özel sohbet mesajı geldiğinde tetiklenir.</summary>
     public event EventHandler<ChatMessage>? MessageReceived;
 
     public bool IsRunning => _listener != null;
@@ -130,11 +130,34 @@ public class ChatServer
     {
         message.From = sender.Username;
         message.Timestamp = DateTime.Now;
-        if (message.Type == MessageType.Chat && !string.IsNullOrWhiteSpace(message.Text))
+        if (string.IsNullOrWhiteSpace(message.Text))
+            return;
+
+        if (message.Type == MessageType.Chat)
         {
             MessageReceived?.Invoke(this, message);
             await BroadcastAsync(message);
         }
+        else if (message.Type == MessageType.Private)
+        {
+            await SendPrivateAsync(sender, message);
+        }
+    }
+
+    /// <summary>Özel mesajı yalnızca alıcıya ve (kendi ekranında görsün diye) gönderene iletir.</summary>
+    private async Task SendPrivateAsync(ClientConnection sender, ChatMessage message)
+    {
+        if (!_clients.TryGetValue(message.To, out ClientConnection? recipient))
+        {
+            await SendSafeAsync(sender, new ChatMessage { Type = MessageType.System, Text = $"'{message.To}' adlı kullanıcı çevrimiçi değil." });
+            return;
+        }
+
+        message.To = recipient.Username;
+        MessageReceived?.Invoke(this, message);
+        await SendSafeAsync(recipient, message);
+        if (recipient != sender)
+            await SendSafeAsync(sender, message);
     }
 
     /// <summary>Güncel çevrimiçi kullanıcı listesini herkese gönderir.</summary>
