@@ -15,6 +15,7 @@ public partial class SunucuForm : Form
         _server.ClientConnected += Server_ClientConnected;
         _server.ClientDisconnected += Server_ClientDisconnected;
         _server.MessageReceived += Server_MessageReceived;
+        _server.ClientRejected += Server_ClientRejected;
     }
 
     private async void btnBaslat_Click(object sender, EventArgs e)
@@ -24,6 +25,11 @@ public partial class SunucuForm : Form
         try
         {
             serverTask = _server.StartAsync(port);
+        }
+        catch (SocketException ex) when (ex.SocketErrorCode == SocketError.AddressAlreadyInUse)
+        {
+            MessageBox.Show($"{port} portu başka bir uygulama tarafından kullanılıyor. Farklı bir port seçin.", "Port Meşgul", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return;
         }
         catch (SocketException ex)
         {
@@ -37,6 +43,7 @@ public partial class SunucuForm : Form
 
         if (IsDisposed)
             return;
+        _server.Stop();
         SetRunning(false);
         lvIstemciler.Items.Clear();
         AddLog("Sunucu durduruldu.");
@@ -67,6 +74,8 @@ public partial class SunucuForm : Form
         }
         AddLog($"{client.Username} ayrıldı ({client.RemoteEndPoint}).");
     });
+
+    private void Server_ClientRejected(object? sender, string reason) => RunOnUi(() => AddLog(reason));
 
     private void Server_MessageReceived(object? sender, ChatMessage message) => RunOnUi(() => AddLog(message.ToString()));
 

@@ -18,24 +18,18 @@ public partial class IstemciForm : Form
 
     private async void btnBaglan_Click(object sender, EventArgs e)
     {
-        string username = txtKullaniciAdi.Text.Trim();
-        if (username.Length == 0)
-        {
-            MessageBox.Show("Lütfen bir kullanıcı adı girin.", "Uyarı", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            return;
-        }
-
         btnBaglan.Enabled = false;
         lblDurum.Text = "Bağlanıyor...";
         try
         {
-            await _client.ConnectAsync(txtSunucu.Text.Trim(), (int)nudPort.Value, username);
+            await _client.ConnectAsync(txtSunucu.Text.Trim(), (int)nudPort.Value, txtKullaniciAdi.Text.Trim());
             SetConnected(true);
         }
-        catch (Exception ex) when (ex is SocketException or IOException or ChatConnectionException)
+        catch (ChatConnectionException ex)
         {
             SetConnected(false);
-            MessageBox.Show($"Bağlanılamadı: {ex.Message}", "Bağlantı Hatası", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            lblDurum.Text = "Bağlanılamadı";
+            MessageBox.Show(ex.Message, "Bağlantı Hatası", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
 
@@ -63,9 +57,10 @@ public partial class IstemciForm : Form
             await _client.SendTextAsync(text);
             txtMesaj.Clear();
         }
-        catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException or SocketException)
         {
-            lblDurum.Text = $"Mesaj gönderilemedi: {ex.Message}";
+            // Bağlantı koptuysa okuma döngüsü Disconnected ile ayrıca bildirir.
+            lblDurum.Text = "Mesaj gönderilemedi: sunucu bağlantısı kopmuş olabilir.";
         }
     }
 
@@ -82,11 +77,13 @@ public partial class IstemciForm : Form
         lstMesajlar.TopIndex = lstMesajlar.Items.Count - 1;
     });
 
-    private void Client_Disconnected(object? sender, string reason) => RunOnUi(() =>
+    private void Client_Disconnected(object? sender, DisconnectedEventArgs e) => RunOnUi(() =>
     {
         SetConnected(false);
-        lblDurum.Text = reason;
-        lstMesajlar.Items.Add($"[{DateTime.Now:HH:mm:ss}] [Sistem] {reason}");
+        lblDurum.Text = e.Reason;
+        lstMesajlar.Items.Add($"[{DateTime.Now:HH:mm:ss}] [Sistem] {e.Reason}");
+        if (!e.ByUser)
+            MessageBox.Show($"{e.Reason} Sunucu tekrar açıldığında yeniden bağlanabilirsiniz.", "Bağlantı Koptu", MessageBoxButtons.OK, MessageBoxIcon.Warning);
     });
 
     /// <summary>Arka plan thread'inden gelen olayları UI thread'ine aktarır.</summary>

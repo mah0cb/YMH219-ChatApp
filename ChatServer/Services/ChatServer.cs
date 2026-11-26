@@ -2,12 +2,15 @@ using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
 using ChatCommon.Models;
+using ChatCommon.Protocol;
 
 namespace ChatServerApp.Services;
 
 /// <summary>TCP sohbet sunucusu: istemcileri kabul eder, kullanıcı adıyla kaydeder ve mesajları dağıtır.</summary>
 public class ChatServer
 {
+    private static readonly TimeSpan JoinTimeout = TimeSpan.FromSeconds(10);
+
     private readonly ConcurrentDictionary<string, ClientConnection> _clients = new(StringComparer.OrdinalIgnoreCase);
     private TcpListener? _listener;
     private CancellationTokenSource? _cancellation;
@@ -17,6 +20,9 @@ public class ChatServer
 
     /// <summary>Kayıtlı bir istemcinin bağlantısı kapandığında tetiklenir.</summary>
     public event EventHandler<ClientConnection>? ClientDisconnected;
+
+    /// <summary>Bir bağlantı reddedildiğinde (aynı/geçersiz kullanıcı adı) nedeniyle birlikte tetiklenir.</summary>
+    public event EventHandler<string>? ClientRejected;
 
     /// <summary>Bir istemciden sohbet mesajı geldiğinde tetiklenir.</summary>
     public event EventHandler<ChatMessage>? MessageReceived;
@@ -40,7 +46,7 @@ public class ChatServer
         return Task.Run(() => AcceptLoopAsync(listener, token));
     }
 
-    /// <summary>Dinlemeyi durdurur ve tüm istemci bağlantılarını kapatır.</summary>
+    /// <summary>Dinlemeyi durdurur ve tüm istemci bağlantılarını kapatır. Birden çok kez çağrılabilir.</summary>
     public void Stop()
     {
         _cancellation?.Cancel();
@@ -49,6 +55,10 @@ public class ChatServer
         foreach (ClientConnection client in _clients.Values)
             client.Close();
     }
+
+    /// <summary>Mesajı tüm bağlı istemcilere paralel gönderir.</summary>
+    public Task BroadcastAsync(ChatMessage message) =>
+        Task.WhenAll(_clients.Values.Select(client => SendSafeAsync(client, message)));
 
     private async Task AcceptLoopAsync(TcpListener listener, CancellationToken token)
     {
@@ -60,13 +70,9 @@ public class ChatServer
                 _ = HandleClientAsync(tcpClient, token);
             }
         }
-        catch (OperationCanceledException)
+        catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException or SocketException)
         {
-            // Stop() çağrıldı, normal kapanış.
-        }
-        catch (ObjectDisposedException)
-        {
-            // Dinleyici kapatıldı, normal kapanış.
+            // Stop() çağrıldı veya dinleyici kapandı; döngü biter, Task tamamlanır.
         }
     }
 
@@ -76,13 +82,25 @@ public class ChatServer
         var connection = new ClientConnection(tcpClient);
         try
         {
-            ChatMessage? join = await connection.ReadAsync(token);
-            if (join?.Type != MessageType.Join || string.IsNullOrWhiteSpace(join.From))
+            ChatMessage? join;
+            using (var joinTimeout = CancellationTokenSource.CreateLinkedTokenSource(token))
+            {
+                joinTimeout.CancelAfter(JoinTimeout);
+                join = await connection.ReadAsync(joinTimeout.Token);
+            }
+            if (join?.Type != MessageType.Join)
                 return;
 
             string username = join.From.Trim();
-            if (!_clients.TryAdd(username, connection))
+            string? error = UsernameRules.Validate(username);
+            if (error == null && !_clients.TryAdd(username, connection))
+                error = $"'{username}' kullanıcı adı zaten kullanımda. Başka bir ad seçin.";
+            if (error != null)
+            {
+                ClientRejected?.Invoke(this, $"{connection.RemoteEndPoint} reddedildi: {error}");
+                await SendSafeAsync(connection, new ChatMessage { Type = MessageType.System, Text = error });
                 return;
+            }
 
             connection.Username = username;
             ClientConnected?.Invoke(this, connection);
@@ -93,7 +111,7 @@ public class ChatServer
         }
         catch (Exception ex) when (ex is IOException or SocketException or ObjectDisposedException or OperationCanceledException)
         {
-            // Bağlantı koptu veya sunucu durduruldu; temizlik finally'de.
+            // Bağlantı koptu, katılma zaman aşımına uğradı veya sunucu durduruldu; temizlik finally'de.
         }
         finally
         {
@@ -107,9 +125,17 @@ public class ChatServer
         }
     }
 
-    /// <summary>Mesajı tüm bağlı istemcilere paralel gönderir.</summary>
-    public Task BroadcastAsync(ChatMessage message) =>
-        Task.WhenAll(_clients.Values.Select(client => SendSafeAsync(client, message)));
+    /// <summary>İstemciden gelen mesajı sunucu bilgileriyle damgalayıp işler.</summary>
+    private async Task HandleMessageAsync(ClientConnection sender, ChatMessage message)
+    {
+        message.From = sender.Username;
+        message.Timestamp = DateTime.Now;
+        if (message.Type == MessageType.Chat && !string.IsNullOrWhiteSpace(message.Text))
+        {
+            MessageReceived?.Invoke(this, message);
+            await BroadcastAsync(message);
+        }
+    }
 
     /// <summary>Güncel çevrimiçi kullanıcı listesini herkese gönderir.</summary>
     private Task BroadcastUserListAsync() =>
@@ -125,18 +151,6 @@ public class ChatServer
         catch (Exception ex) when (ex is IOException or SocketException or ObjectDisposedException)
         {
             client.Close();
-        }
-    }
-
-    /// <summary>İstemciden gelen mesajı sunucu bilgileriyle damgalayıp işler.</summary>
-    private async Task HandleMessageAsync(ClientConnection sender, ChatMessage message)
-    {
-        message.From = sender.Username;
-        message.Timestamp = DateTime.Now;
-        if (message.Type == MessageType.Chat)
-        {
-            MessageReceived?.Invoke(this, message);
-            await BroadcastAsync(message);
         }
     }
 }

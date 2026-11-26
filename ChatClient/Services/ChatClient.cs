@@ -8,7 +8,7 @@ namespace ChatClientApp.Services;
 /// <summary>Sohbet sunucusuna bağlanan, mesaj gönderen ve gelen mesajları event ile bildiren istemci.</summary>
 public class ChatClient
 {
-    private static readonly TimeSpan JoinTimeout = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(5);
 
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private TcpClient? _tcpClient;
@@ -18,8 +18,8 @@ public class ChatClient
     /// <summary>Sunucudan mesaj geldiğinde tetiklenir (arka plan thread'inden).</summary>
     public event EventHandler<ChatMessage>? MessageReceived;
 
-    /// <summary>Bağlantı kapandığında tetiklenir; argüman kapanma nedenidir.</summary>
-    public event EventHandler<string>? Disconnected;
+    /// <summary>Bağlantı kapandığında tetiklenir (arka plan thread'inden).</summary>
+    public event EventHandler<DisconnectedEventArgs>? Disconnected;
 
     public string Username { get; private set; } = string.Empty;
 
@@ -27,24 +27,28 @@ public class ChatClient
 
     /// <summary>
     /// Sunucuya bağlanır, kullanıcı adıyla katılma isteği gönderir ve sunucunun onayını bekler.
-    /// Hata durumunda SocketException, IOException veya ChatConnectionException fırlatır.
+    /// Her türlü bağlantı hatası Türkçe açıklamalı ChatConnectionException olarak fırlatılır.
     /// </summary>
     public async Task ConnectAsync(string host, int port, string username)
     {
         if (IsConnected)
             throw new InvalidOperationException("Zaten bağlısınız.");
+        string? error = UsernameRules.Validate(username);
+        if (error != null)
+            throw new ChatConnectionException(error);
+        if (string.IsNullOrWhiteSpace(host))
+            throw new ChatConnectionException("Sunucu adresi boş olamaz.");
 
         var tcpClient = new TcpClient();
         try
         {
-            await tcpClient.ConnectAsync(host, port);
+            using var timeout = new CancellationTokenSource(ConnectTimeout);
+            await tcpClient.ConnectAsync(host, port, timeout.Token);
             NetworkStream stream = tcpClient.GetStream();
             var reader = new StreamReader(stream, Encoding.UTF8);
             _writer = new StreamWriter(stream, new UTF8Encoding(false));
 
             await MessageSerializer.WriteAsync(_writer, new ChatMessage { Type = MessageType.Join, From = username });
-
-            using var timeout = new CancellationTokenSource(JoinTimeout);
             ChatMessage reply = await WaitForJoinReplyAsync(reader, username, timeout.Token);
 
             _tcpClient = tcpClient;
@@ -54,15 +58,20 @@ public class ChatClient
             MessageReceived?.Invoke(this, reply);
             _ = Task.Run(() => ReadLoopAsync(reader));
         }
-        catch (OperationCanceledException)
+        catch (Exception ex)
         {
             tcpClient.Close();
-            throw new ChatConnectionException("Sunucu zamanında yanıt vermedi.");
-        }
-        catch
-        {
-            tcpClient.Close();
-            throw;
+            throw ex switch
+            {
+                ChatConnectionException => ex,
+                OperationCanceledException => new ChatConnectionException("Sunucu zamanında yanıt vermedi (zaman aşımı). Adres ve portu kontrol edin."),
+                SocketException { SocketErrorCode: SocketError.ConnectionRefused } =>
+                    new ChatConnectionException($"{host}:{port} adresinde çalışan bir sunucu yok. Sunucu kapalı olabilir."),
+                SocketException { SocketErrorCode: SocketError.HostNotFound or SocketError.NoData } =>
+                    new ChatConnectionException($"'{host}' sunucu adresi bulunamadı."),
+                SocketException or IOException => new ChatConnectionException($"Bağlantı kurulamadı: {ex.Message}"),
+                _ => ex
+            };
         }
     }
 
@@ -149,13 +158,15 @@ public class ChatClient
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or SocketException)
         {
-            reason = "Sunucu bağlantısı koptu.";
+            reason = "Sunucuyla bağlantı koptu.";
         }
         finally
         {
             IsConnected = false;
             _tcpClient?.Close();
-            Disconnected?.Invoke(this, _closingByUser ? "Bağlantı kesildi." : reason);
+            Disconnected?.Invoke(this, _closingByUser
+                ? new DisconnectedEventArgs("Bağlantı kesildi.", true)
+                : new DisconnectedEventArgs(reason, false));
         }
     }
 }
